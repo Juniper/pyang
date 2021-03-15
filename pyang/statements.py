@@ -1,5 +1,6 @@
 import copy
 import re
+import pdb
 
 from . import util
 from . import types
@@ -1598,6 +1599,10 @@ def v_expand_1_uses(ctx, stmt):
                                               'typedef','grouping'],
                                       copyf=post_copy)
                         new.i_children.append(newx)
+            # Save the orignal node, for use with --yang-remove-deviations-*.
+            # If we're doing nested groupings, then we want this true original.
+            new.i_orig_node = getattr(old, 'i_orig_node', old)
+
         newg = g.copy(stmt.parent, stmt,
                       nocopy=['type','uses','unique', 'if-feature',
                               'typedef','grouping'],
@@ -1613,6 +1618,7 @@ def v_expand_1_uses(ctx, stmt):
             newg.i_not_implemented = stmt.i_not_implemented
 
         stmt.parent.i_children.append(newg)
+        #newg.i_orig_node = getattr(g, 'i_orig_node', g)
 
     # copy plain statements from the grouping
     for s in stmt.i_grouping.substmts:
@@ -2222,6 +2228,15 @@ def v_reference_deviate(ctx, stmt):
         if not hasattr(t.parent, 'i_not_supported'):
             t.parent.i_not_supported = []
         t.parent.i_not_supported.append(t)
+
+        # For use with --yang-remove-deviations-*: Mark the original
+        # node as not supported.
+        if hasattr(t, 'i_orig_node'):
+            orig = t.i_orig_node
+#            if not hasattr(orig.parent, 'i_not_supported'):
+#                orig.parent.i_not_supported = []
+#            orig.parent.i_not_supported.append(orig)
+
         # delete the node from i_children
         idx = t.parent.i_children.index(t)
         del t.parent.i_children[idx]
@@ -2231,6 +2246,23 @@ def v_reference_deviate(ctx, stmt):
         if t1 is not None:
             idx = t.parent.substmts.index(t1)
             del t.parent.substmts[idx]
+
+        # If the "--yang-remove-deviations-from-groupings" option
+        # then we want to delete the node from the grouping that added it.
+        try:
+            if ctx.opts.yang_mung_groupings:
+                orig = t.i_orig_node
+                idx = orig.parent.i_children.index(orig)
+                del orig.parent.i_children[idx]
+                # find and delete the node from substmts
+                # it may not be there if it is a shorthand case
+                t1 = orig.parent.search_one(orig.keyword, orig.arg, orig.parent.substmts)
+                if t1 is not None:
+                    idx = orig.parent.substmts.index(t1)
+                    del orig.parent.substmts[idx]
+        except:
+            pass
+
     elif stmt.arg == 'add':
         for c in stmt.substmts:
             if c.keyword == '_comment':
@@ -2953,6 +2985,9 @@ class Statement(object):
         'i_extension_revision',
         'i_extension',
 
+        # original node for --yang-remove-deviations-*
+        'i_orig_node',
+
         # for plugins, etc.
         '__dict__',
     )
@@ -3002,6 +3037,25 @@ class Statement(object):
                     delattr(self, s)
         for s in self.substmts:
             s.internal_reset()
+
+    # Using '__slots__' makes python more efficient, but makes debugging
+    # more of a pain, since fields are no longer visible.  "view" will
+    # return a dictionary, suitable for pprint containing the fields.
+    # Consider using "alias v pp %1.view()" in pdb
+    def view(self):
+        """Display the fields of an object using its slots"""
+        slots = ()
+        if hasattr(self, '__class__'):
+            if hasattr(self.__class__, '__slots__'):
+                slots += self.__class__.__slots__
+            if hasattr(self.__class__, '__base__'):
+                if hasattr(self.__class__.__base__, '__slots__'):
+                    slots += self.__class__.__base__.__slots__
+        res = {}
+        for s in slots:
+            if hasattr(self, s):
+                res[s] = getattr(self, s)
+        return res
 
     def search(self, keyword, children=None, arg=None):
         """Return list of receiver's substmts with `keyword`.
