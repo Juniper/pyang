@@ -30,6 +30,12 @@ class YANGPlugin(plugin.PyangPlugin):
                                  type="int",
                                  dest="yang_line_length",
                                  help="Maximum line length"),
+            optparse.make_option("--yang-remove-deviations-from-groupings",
+                                 dest="yang_mung_groupings",
+                                 action="store_true"),
+            optparse.make_option("--yang-remove-deviations-from-augments",
+                                 dest="yang_mung_augments",
+                                 action="store_true"),
             ]
         g = optparser.add_option_group("YANG output specific options")
         g.add_options(optlist)
@@ -159,6 +165,12 @@ def emit_stmt(ctx, stmt, fd, level, prev_kwd, prev_kwd_class, islast,
               indent, indentstep, link_list):
     # line end comment has been printed
     if is_line_end_comment(stmt):
+        return
+
+    # If the "--yang-remove-deviations-from-augments" option has been
+    # requested, then we want to trim and deviated items from the augment
+    # where they were added.
+    if ctx.opts.yang_mung_augments and getattr(stmt, 'i_this_not_supported', False):
         return
 
     if ctx.opts.yang_remove_unused_imports and stmt.keyword == 'import':
