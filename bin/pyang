@@ -457,7 +457,8 @@ Validates the YANG module in <filename> (or stdin), and all its dependencies."""
             epos.top.arg not in modulenames and
             (not hasattr(epos.top, 'i_modulename') or
              epos.top.i_modulename not in modulenames) and
-            epos.ref not in filenames):
+            epos.ref not in filenames and
+            epos.ref not in ctx.opts.deviations):
             # this module was added implicitly (by import); skip this error
             # the code includes submodules
             continue
