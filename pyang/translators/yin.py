@@ -11,6 +11,8 @@ from .. import util
 from .. import grammar
 from .. import syntax
 from .. import statements
+from .. statements import has_children
+from .. statements import expand_children
 
 yin_namespace = "urn:ietf:params:xml:ns:yang:yin:1"
 
@@ -28,6 +30,10 @@ class YINPlugin(plugin.PyangPlugin):
                                  dest="yin_pretty_strings",
                                  action="store_true",
                                  help="Pretty print strings"),
+            optparse.make_option("--yin-expand-groupings",
+                                 dest="yin_expand_groupings",
+                                 action="store_true",
+                                 help="Expand groupings/uses in place"),
             ]
         g = optparser.add_option_group("YIN output specific options")
         g.add_options(optlist)
@@ -83,10 +89,14 @@ def emit_yin(ctx, module, fd):
                     fd.write('  xmlns:' + prefix.arg + '=' +
                              quoteattr(ns.arg))
     fd.write('>\n')
+
+    substmts = module.substmts
+    if ctx.opts.yin_expand_groupings and has_children(module):
+        substmts = expand_children(ctx, module)
+
     if ctx.opts.yin_canonical:
-        substmts = grammar.sort_canonical(module.keyword, module.substmts)
-    else:
-        substmts = module.substmts
+        substmts = grammar.sort_canonical(module.keyword, substmts)
+
     for s in substmts:
         emit_stmt(ctx, module, s, fd, '  ', '  ')
     fd.write('</%s>\n' % module.keyword)
@@ -116,16 +126,22 @@ def emit_stmt(ctx, module, stmt, fd, indent, indentstep):
     else:
         (argname, argiselem) = syntax.yin_map[stmt.raw_keyword]
         tag = stmt.raw_keyword
+
+    substmts = stmt.substmts
     if argiselem is False or argname is None:
         if argname is None:
             attr = ''
         else:
             attr = ' ' + argname + '=' + quoteattr(stmt.arg)
-        if len(stmt.substmts) == 0:
+
+        if ctx.opts.yin_expand_groupings and has_children(stmt):
+            substmts = expand_children(ctx, stmt)
+
+        if len(substmts) == 0:
             fd.write(indent + '<' + tag + attr + '/>\n')
         else:
             fd.write(indent + '<' + tag + attr + '>\n')
-            for s in stmt.substmts:
+            for s in substmts:
                 emit_stmt(ctx, module, s, fd, indent + indentstep,
                           indentstep)
             fd.write(indent + '</' + tag + '>\n')
@@ -143,9 +159,8 @@ def emit_stmt(ctx, module, stmt, fd, indent, indentstep):
                        escape(stmt.arg) + \
                        '</' + argname + '>\n')
         if ctx.opts.yin_canonical:
-            substmts = grammar.sort_canonical(stmt.keyword, stmt.substmts)
-        else:
-            substmts = stmt.substmts
+            substmts = grammar.sort_canonical(stmt.keyword, substmts)
+
         for s in substmts:
             emit_stmt(ctx, module, s, fd, indent + indentstep, indentstep)
         fd.write(indent + '</' + tag + '>\n')
