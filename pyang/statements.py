@@ -3522,3 +3522,22 @@ def get_description(stmt):
     description_obj = stmt.search_one('description')
     # Return description value if exists
     return getattr(description_obj, 'arg', None)
+
+# If the --yang-expand-groupings option was selected, we fake up
+# a combination of children + substmts, as needed
+def expand_children(ctx, stmt):
+    nope = ('uses', 'grouping', 'augment')
+    res = []
+    res.extend([s for s in stmt.i_children if s not in res])
+    res.extend([s for s in stmt.substmts if s not in res and s.keyword not in nope])
+
+    return res
+
+def has_children(stmt):
+    if not stmt:
+        return False
+    if not hasattr(stmt, "i_children"):
+        return False
+    if len(stmt.i_children) == 0:
+        return False
+    return True
