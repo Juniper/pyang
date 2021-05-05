@@ -5,6 +5,8 @@ import optparse
 from .. import plugin
 from .. import util
 from .. import grammar
+from .. statements import has_children
+from .. statements import expand_children
 
 def pyang_plugin_init():
     plugin.register_plugin(YANGPlugin())
@@ -32,10 +34,18 @@ class YANGPlugin(plugin.PyangPlugin):
                                  help="Maximum line length"),
             optparse.make_option("--yang-remove-deviations-from-groupings",
                                  dest="yang_mung_groupings",
-                                 action="store_true"),
+                                 action="store_true",
+                                 help="When a 'deviate' target comes from a " +
+                                 "grouping, remove it from the grouping"),
             optparse.make_option("--yang-remove-deviations-from-augments",
                                  dest="yang_mung_augments",
-                                 action="store_true"),
+                                 action="store_true",
+                                 help="When a 'deviate' target comes from " +
+                                 "an augment, remove it from the augment"),
+            optparse.make_option("--yang-expand-groupings",
+                                 dest="yang_expand_groupings",
+                                 action="store_true",
+                                 help="Expand groupings/uses in place"),
             ]
         g = optparser.add_option_group("YANG output specific options")
         g.add_options(optlist)
@@ -167,6 +177,10 @@ def emit_stmt(ctx, stmt, fd, level, prev_kwd, prev_kwd_class, islast,
     if is_line_end_comment(stmt):
         return
 
+    expanded_children = None
+    if ctx.opts.yang_expand_groupings and has_children(stmt):
+        expanded_children = expand_children(ctx, stmt)
+
     # If the "--yang-remove-deviations-from-augments" option has been
     # requested, then we want to trim and deviated items from the augment
     # where they were added.
@@ -199,10 +213,13 @@ def emit_stmt(ctx, stmt, fd, level, prev_kwd, prev_kwd_class, islast,
 
     fd.write(indent + keywordstr)
     arg_on_new_line = False
-    if len(stmt.substmts) == 0:
+
+    substmts = expanded_children if expanded_children else stmt.substmts
+    if len(substmts) == 0:
         eol = ';'
     else:
         eol = ' {'
+
     if stmt.arg is not None:
         # line_len is length of line w/o arg but with quotes and space before
         # the arg
@@ -262,10 +279,14 @@ def emit_stmt(ctx, stmt, fd, level, prev_kwd, prev_kwd_class, islast,
     fd.write('\n')
 
     if len(stmt.substmts) > 0:
-        if ctx.opts.yang_canonical:
-            substmts = grammar.sort_canonical(stmt.keyword, stmt.substmts)
+        if expanded_children:
+            substmts = expanded_children
         else:
             substmts = stmt.substmts
+
+        if ctx.opts.yang_canonical:
+            substmts = grammar.sort_canonical(stmt.keyword, substmts)
+
         if level == 0:
             kwd_class = 'header'
         prev_kwd = None
