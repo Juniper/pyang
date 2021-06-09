@@ -5,6 +5,7 @@ from xml.sax.saxutils import escape
 
 import optparse
 import re
+import sys
 
 from .. import plugin
 from .. import util
@@ -38,8 +39,13 @@ class YINPlugin(plugin.PyangPlugin):
         g = optparser.add_option_group("YIN output specific options")
         g.add_options(optlist)
     def add_output_format(self, fmts):
+        self.multiple_modules = True
         fmts['yin'] = self
     def emit(self, ctx, modules, fd):
+        if len(modules) > 1 and not ctx.opts.yin_expand_groupings:
+            sys.stderr.write("too many files to convert\n")
+            sys.exit(1)
+
         module = modules[0]
         emit_yin(ctx, module, fd)
 
@@ -90,6 +96,23 @@ def emit_yin(ctx, module, fd):
                              quoteattr(ns.arg))
     fd.write('>\n')
 
+    skip = []
+    if ctx.opts.yin_expand_groupings:
+        mods = [module]
+        for i in module.search('include'):
+            subm = ctx.get_module(i.arg)
+            if subm is not None:
+                mods.append(subm)
+
+        for m in mods:
+            for augment in m.search('augment'):
+                if (hasattr(augment, 'i_target_node') and
+                    hasattr(augment.i_target_node, 'i_module') and
+                    augment.i_target_node.i_module not in mods):
+
+                    fd.write("<!-- augment {} -->\n".format(augment.arg))
+                    skip.append(augment)
+
     substmts = module.substmts
     if ctx.opts.yin_expand_groupings and has_children(module):
         substmts = expand_children(ctx, module)
@@ -98,7 +121,8 @@ def emit_yin(ctx, module, fd):
         substmts = grammar.sort_canonical(module.keyword, substmts)
 
     for s in substmts:
-        emit_stmt(ctx, module, s, fd, '  ', '  ')
+        if s not in skip:
+            emit_stmt(ctx, module, s, fd, '  ', '  ')
     fd.write('</%s>\n' % module.keyword)
 
 def emit_stmt(ctx, module, stmt, fd, indent, indentstep):
